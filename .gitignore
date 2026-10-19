@@ -1,0 +1,19 @@
+# Lokalne
+CLAUDE.md
+.env
+.idea/
+.vscode/
+
+# Python (raspberry-pi)
+.venv/
+__pycache__/
+*.pyc
+
+# Frontend (React)
+node_modules/
+dist/
+
+# Backend (Spring Boot)
+target/
+build/
+.gradle/
