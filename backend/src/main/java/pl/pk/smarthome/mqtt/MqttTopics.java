@@ -1,5 +1,9 @@
 package pl.pk.smarthome.mqtt;
 
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.springframework.stereotype.Component;
 import pl.pk.smarthome.config.MqttProperties;
 
@@ -8,9 +12,11 @@ import pl.pk.smarthome.config.MqttProperties;
 public class MqttTopics {
 
 	private final String base;
+	private final Pattern deviceStatePattern;
 
 	public MqttTopics(MqttProperties properties) {
 		this.base = "home/" + properties.hubId();
+		this.deviceStatePattern = Pattern.compile(Pattern.quote(base) + "/([a-z0-9_-]+)/state");
 	}
 
 	public String all() {
@@ -35,6 +41,12 @@ public class MqttTopics {
 
 	public String deviceState(String deviceCode) {
 		return base + "/" + deviceCode + "/state";
+	}
+
+	// home/hub1/led/state -> "led"
+	public Optional<String> deviceCodeFromStateTopic(String topic) {
+		Matcher matcher = deviceStatePattern.matcher(topic);
+		return matcher.matches() ? Optional.of(matcher.group(1)) : Optional.empty();
 	}
 
 }
