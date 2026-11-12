@@ -34,6 +34,17 @@ class DecodeDht22Test(unittest.TestCase):
     def test_missed_response_edge(self):
         self.assertAlmostEqual(decode_dht22(frame(45.3, 21.4)[1:]).temperature, 21.4)
 
+    def test_missed_leading_bit_edges(self):
+        # Na Pi 4 przełączenie w tryb alert gubi zwykle 1-3 pierwsze zbocza ramki.
+        for missing in range(2, 8):
+            with self.subTest(missing=missing):
+                reading = decode_dht22(frame(53.4, 23.6)[missing:])
+                self.assertAlmostEqual(reading.humidity, 53.4)
+                self.assertAlmostEqual(reading.temperature, 23.6)
+
+    def test_max_humidity_with_missed_leading_bits(self):
+        self.assertAlmostEqual(decode_dht22(frame(100.0, 21.4)[7:]).humidity, 100.0)
+
     def test_checksum(self):
         with self.assertRaises(DhtReadError):
             decode_dht22(frame(45.3, 21.4, corrupt_checksum=True))
