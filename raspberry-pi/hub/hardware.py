@@ -89,6 +89,10 @@ DHT22_START_LOW_S = 0.002
 DHT22_TRANSMISSION_S = 0.010
 DHT22_BITS = 40
 DHT22_BIT_THRESHOLD_NS = 100_000
+# Wilgotność <= 100,0 % to wartość <= 1000 (0x03E8), więc 6 najstarszych bitów ramki jest zawsze zerami.
+# Pozwala to odtworzyć do 6 początkowych bitów, gdy przełączenie linii w tryb alert spóźni się
+# na pierwsze zbocza (na Pi 4 gubimy zwykle 1-3); błędną rekonstrukcję wyłapie suma kontrolna.
+DHT22_MAX_MISSING_LEADING_BITS = 6
 
 
 def decode_dht22(falling_edges_ns: list[int]) -> DhtReading:
@@ -96,11 +100,15 @@ def decode_dht22(falling_edges_ns: list[int]) -> DhtReading:
 
     Bierze ostatnie 41 zboczy: początki 40 bitów i koniec ostatniego bitu, więc pominięcie
     zbocza odpowiedzi czujnika (np. przez opóźnienie przełączenia linii) nie przeszkadza.
+    Jeśli zgubiono też początki pierwszych bitów, uzupełnia je zerami
+    (patrz DHT22_MAX_MISSING_LEADING_BITS).
     """
-    if len(falling_edges_ns) < DHT22_BITS + 1:
-        raise DhtReadError(f"za mało zboczy: {len(falling_edges_ns)}")
+    min_edges = DHT22_BITS + 1 - DHT22_MAX_MISSING_LEADING_BITS
+    if len(falling_edges_ns) < min_edges:
+        raise DhtReadError(f"za mało zboczy: {len(falling_edges_ns)} (min. {min_edges})")
     edges = falling_edges_ns[-(DHT22_BITS + 1):]
     bits = [1 if b - a > DHT22_BIT_THRESHOLD_NS else 0 for a, b in zip(edges, edges[1:])]
+    bits = [0] * (DHT22_BITS - len(bits)) + bits
 
     data = [int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, DHT22_BITS, 8)]
     if (sum(data[:4]) & 0xFF) != data[4]:
