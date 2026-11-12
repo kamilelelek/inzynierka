@@ -1,4 +1,4 @@
-"""Warstwa sprzętowa: prawdziwe GPIO (gpiozero, adafruit_dht) albo symulacja (tryb mock).
+"""Warstwa sprzętowa: prawdziwe GPIO (gpiozero, lgpio) albo symulacja (tryb mock).
 
 Biblioteki GPIO są importowane dopiero przy tworzeniu prawdziwych urządzeń,
 dzięki czemu tryb mock działa na Windows bez ich instalowania.
@@ -82,25 +82,75 @@ class GpioRelay:
         self._device.close()
 
 
-class GpioDht22:
-    def __init__(self, pin: int) -> None:
-        import adafruit_dht
-        import board
+# Protokół DHT22: host ściąga linię w dół na >= 1 ms, potem czujnik odpowiada (80 us L + 80 us H)
+# i nadaje 40 bitów. Każdy bit to 50 us stanu niskiego i 26-28 us (0) albo 70 us (1) stanu wysokiego,
+# więc odstęp między kolejnymi zboczami opadającymi wynosi ~76 us dla 0 i ~120 us dla 1.
+DHT22_START_LOW_S = 0.002
+DHT22_TRANSMISSION_S = 0.010
+DHT22_BITS = 40
+DHT22_BIT_THRESHOLD_NS = 100_000
 
-        self._device = adafruit_dht.DHT22(getattr(board, f"D{pin}"))
+
+def decode_dht22(falling_edges_ns: list[int]) -> DhtReading:
+    """Dekoduje odczyt ze znaczników czasu zboczy opadających (ns).
+
+    Bierze ostatnie 41 zboczy: początki 40 bitów i koniec ostatniego bitu, więc pominięcie
+    zbocza odpowiedzi czujnika (np. przez opóźnienie przełączenia linii) nie przeszkadza.
+    """
+    if len(falling_edges_ns) < DHT22_BITS + 1:
+        raise DhtReadError(f"za mało zboczy: {len(falling_edges_ns)}")
+    edges = falling_edges_ns[-(DHT22_BITS + 1):]
+    bits = [1 if b - a > DHT22_BIT_THRESHOLD_NS else 0 for a, b in zip(edges, edges[1:])]
+
+    data = [int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, DHT22_BITS, 8)]
+    if (sum(data[:4]) & 0xFF) != data[4]:
+        raise DhtReadError(f"błędna suma kontrolna: {data}")
+    if not any(data):
+        raise DhtReadError("same zera (brak odpowiedzi czujnika?)")
+
+    humidity = ((data[0] << 8) | data[1]) / 10
+    temperature = (((data[2] & 0x7F) << 8) | data[3]) / 10
+    if data[2] & 0x80:
+        temperature = -temperature
+    return DhtReading(temperature, humidity)
+
+
+class GpioDht22:
+    """Odczyt DHT22 przez lgpio: znaczniki czasu zboczy pochodzą z jądra, nie z pętli w Pythonie."""
+
+    GPIO_CHIP = 0  # Raspberry Pi 4: gpiochip0
+
+    def __init__(self, pin: int) -> None:
+        import lgpio
+
+        self._lg = lgpio
+        self._pin = pin
+        self._handle = lgpio.gpiochip_open(self.GPIO_CHIP)
+        self._edges: list[int] = []
+        # Callback rejestrujemy raz; zdarzenia przychodzą tylko, gdy linia jest w trybie alert.
+        self._callback = lgpio.callback(
+            self._handle, pin, lgpio.FALLING_EDGE, lambda chip, gpio, level, tick: self._edges.append(tick)
+        )
+        lgpio.gpio_claim_input(self._handle, pin, lgpio.SET_PULL_UP)
 
     def read(self) -> DhtReading:
+        lg = self._lg
         try:
-            temperature = self._device.temperature
-            humidity = self._device.humidity
-        except RuntimeError as e:  # tak adafruit_dht zgłasza typowe błędy odczytu
-            raise DhtReadError(str(e)) from e
-        if temperature is None or humidity is None:
-            raise DhtReadError("czujnik nie zwrócił danych")
-        return DhtReading(float(temperature), float(humidity))
+            lg.gpio_claim_output(self._handle, self._pin, 0)
+            time.sleep(DHT22_START_LOW_S)
+            self._edges = []
+            # Zwolnienie linii (wejście z podciąganiem) rozpoczyma transmisję czujnika.
+            lg.gpio_claim_alert(self._handle, self._pin, lg.FALLING_EDGE, lg.SET_PULL_UP)
+            time.sleep(DHT22_TRANSMISSION_S)
+            lg.gpio_claim_input(self._handle, self._pin, lg.SET_PULL_UP)
+        except lg.error as e:
+            raise DhtReadError(f"lgpio: {e}") from e
+        return decode_dht22(list(self._edges))
 
     def close(self) -> None:
-        self._device.exit()
+        self._callback.cancel()
+        self._lg.gpio_free(self._handle, self._pin)
+        self._lg.gpiochip_close(self._handle)
 
 
 class GpioPir:
