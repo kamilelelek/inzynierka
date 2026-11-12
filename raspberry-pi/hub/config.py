@@ -95,6 +95,7 @@ class Config:
     hub_id: str
     log_level: str
     dht_interval_s: float
+    motion_clear_s: float
     mqtt: MqttConfig
     gpio: GpioConfig
     heater: HeaterSafetyConfig
@@ -136,6 +137,10 @@ def load_config(env_file: Path = DEFAULT_ENV_FILE) -> Config:
     if dht_interval_s < DHT22_MIN_INTERVAL_S:
         raise ConfigError(f"DHT22_INTERVAL_S musi wynosić co najmniej {DHT22_MIN_INTERVAL_S} s")
 
+    motion_clear_s = _get_float("MOTION_CLEAR_S", 5.0)
+    if motion_clear_s <= 0:
+        raise ConfigError("MOTION_CLEAR_S musi być > 0")
+
     heater = HeaterSafetyConfig(
         command_timeout_s=_get_float("HEATER_COMMAND_TIMEOUT_S"),
         max_temperature_c=_get_float("HEATER_MAX_TEMPERATURE_C"),
@@ -148,6 +153,7 @@ def load_config(env_file: Path = DEFAULT_ENV_FILE) -> Config:
         hub_id=hub_id,
         log_level=_get_str("LOG_LEVEL", "INFO").upper(),
         dht_interval_s=dht_interval_s,
+        motion_clear_s=motion_clear_s,
         mqtt=mqtt,
         gpio=gpio,
         heater=heater,

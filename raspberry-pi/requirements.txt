@@ -1,2 +1,8 @@
 paho-mqtt>=2.1,<3
 python-dotenv>=1.0
+
+# Tylko na Raspberry Pi (na PC wystarcza tryb mock: GPIO_MOCK=true).
+# Pin factory lgpio pochodzi z pakietu systemowego python3-lgpio, dlatego venv na Pi
+# tworzymy z --system-site-packages (patrz README.md).
+gpiozero>=2.0; sys_platform == "linux"
+adafruit-circuitpython-dht>=4.0; sys_platform == "linux"

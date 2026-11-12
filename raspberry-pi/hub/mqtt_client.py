@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
@@ -66,6 +66,9 @@ class HubMqttClient:
         self._client.reconnect_delay_set(
             min_delay=config.reconnect_min_delay_s, max_delay=config.reconnect_max_delay_s
         )
+        self._subscriptions: dict[str, Callable[[bytes], None]] = {}
+        self._connection_listeners: list[Callable[[bool], None]] = []
+
         self._client.on_connect = self._on_connect
         self._client.on_connect_fail = self._on_connect_fail
         self._client.on_disconnect = self._on_disconnect
@@ -73,6 +76,26 @@ class HubMqttClient:
     @property
     def is_connected(self) -> bool:
         return self._client.is_connected()
+
+    def subscribe(self, topic: str, handler: Callable[[bytes], None]) -> None:
+        """Rejestruje obsługę komend; subskrypcja jest odnawiana po każdym (re)connect."""
+        self._subscriptions[topic] = handler
+
+        def on_message(client, userdata, message: mqtt.MQTTMessage) -> None:
+            log.debug("<- %s %r", message.topic, message.payload)
+            try:
+                handler(message.payload)
+            except Exception:
+                # Wyjątek w callbacku zatrzymałby wątek sieciowy paho.
+                log.exception("Błąd obsługi wiadomości z %s", message.topic)
+
+        self._client.message_callback_add(topic, on_message)
+        if self.is_connected:
+            self._client.subscribe(topic, qos=QOS_RELIABLE)
+
+    def add_connection_listener(self, listener: Callable[[bool], None]) -> None:
+        """listener(True) po połączeniu (po subskrypcjach i statusie online), listener(False) po utracie."""
+        self._connection_listeners.append(listener)
 
     def start(self) -> None:
         log.info("Łączenie z brokerem %s:%d", self._config.host, self._config.port)
@@ -85,7 +108,8 @@ class HubMqttClient:
         if self.is_connected:
             info = self.publish_json(self._topics.status, {"state": "offline"}, QOS_RELIABLE, retain=True)
             try:
-                info.wait_for_publish(timeout=2)
+                if info is not None:
+                    info.wait_for_publish(timeout=2)
             except (RuntimeError, ValueError):
                 log.warning("Nie udało się wysłać statusu offline")
         self._client.disconnect()
@@ -94,7 +118,11 @@ class HubMqttClient:
 
     def publish_json(
         self, topic: str, payload: dict[str, Any], qos: int, retain: bool = False
-    ) -> mqtt.MQTTMessageInfo:
+    ) -> mqtt.MQTTMessageInfo | None:
+        if not self.is_connected:
+            # Stan urządzeń jest odświeżany po reconnect, a telemetria i tak przyjdzie w kolejnym cyklu.
+            log.debug("Brak połączenia, pomijam %s %s", topic, payload)
+            return None
         info = self._client.publish(topic, json.dumps(payload), qos=qos, retain=retain)
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
             log.warning("Publikacja na %s nieudana: %s", topic, mqtt.error_string(info.rc))
@@ -102,14 +130,20 @@ class HubMqttClient:
             log.debug("-> %s %s", topic, payload)
         return info
 
+    def publish_device_state(self, topic: str, on: bool) -> None:
+        self.publish_json(topic, {"state": "ON" if on else "OFF", "ts": utc_now_iso()}, QOS_RELIABLE, retain=True)
+
     def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         if reason_code.is_failure:
             log.error("Broker odrzucił połączenie: %s", reason_code)
             return
         log.info("Połączono z brokerem")
+        for topic in self._subscriptions:
+            client.subscribe(topic, qos=QOS_RELIABLE)
         self.publish_json(
             self._topics.status, {"state": "online", "ts": utc_now_iso()}, QOS_RELIABLE, retain=True
         )
+        self._notify_listeners(True)
 
     def _on_connect_fail(self, client, userdata) -> None:
         log.warning("Broker %s:%d nieosiągalny, ponawiam", self._config.host, self._config.port)
@@ -119,3 +153,11 @@ class HubMqttClient:
             log.warning("Utracono połączenie z brokerem (%s), ponawiam", reason_code)
         else:
             log.info("Rozłączono z brokerem")
+        self._notify_listeners(False)
+
+    def _notify_listeners(self, connected: bool) -> None:
+        for listener in self._connection_listeners:
+            try:
+                listener(connected)
+            except Exception:
+                log.exception("Błąd w obsłudze zmiany połączenia")

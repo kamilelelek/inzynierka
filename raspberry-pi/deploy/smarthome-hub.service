@@ -1,0 +1,24 @@
+# Instalacja: patrz README.md (sekcja "Autostart").
+# Zmień User i ścieżki, jeśli login na Pi jest inny niż "pi".
+[Unit]
+Description=Smart home hub (MQTT, DHT22, PIR, przekaźniki)
+After=network-online.target mosquitto.service
+Wants=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/inzynierka/raspberry-pi
+ExecStart=/home/pi/inzynierka/raspberry-pi/.venv/bin/python -m hub
+# SIGTERM -> skrypt wyłącza przekaźniki i publikuje status offline.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+# Uruchamiane także po crashu i po kill -9: stan wysoki na IN = przekaźnik OFF (active-low).
+# "+" = jako root, niezależnie od User.
+ExecStopPost=+/usr/bin/pinctrl set 22 op dh
+ExecStopPost=+/usr/bin/pinctrl set 17 op dh
+
+[Install]
+WantedBy=multi-user.target
