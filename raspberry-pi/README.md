@@ -28,7 +28,7 @@ copy .env.example .env      # GPIO_MOCK=true, MQTT_HOST = adres brokera
 ```bash
 sudo apt update
 sudo apt install -y git mosquitto mosquitto-clients python3-venv python3-lgpio libgpiod2
-git clone https://github.com/kamilelelek/in-ynierka.git ~/inzynierka
+git clone https://github.com/kamilelelek/inzynierka.git ~/inzynierka
 cd ~/inzynierka/raspberry-pi
 # --system-site-packages: gpiozero korzysta z systemowego lgpio (z pip trzeba by je kompilować)
 python3 -m venv --system-site-packages .venv
