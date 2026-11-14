@@ -23,6 +23,20 @@ copy .env.example .env      # GPIO_MOCK=true, MQTT_HOST = adres brokera
 ..\.venv\Scripts\python -m unittest discover -s tests -t .
 ```
 
+## Symulator czujników (testy backendu)
+
+`tools/fake_sensors.py` publikuje status, odczyty klimatu i zdarzenia ruchu w tym samym formacie co hub,
+a na komendy `led/set` i `heater/set` odpowiada stanem (grzałka podnosi symulowaną temperaturę, OFF po 30 s bez komendy).
+Broker bierze z `.env` albo z `--host`. Nie uruchamiać równocześnie z hubem o tym samym `HUB_ID`.
+
+```powershell
+cd raspberry-pi
+..\.venv\Scripts\python tools\fake_sensors.py --host kamil.local
+..\.venv\Scripts\python tools\fake_sensors.py --interval 2 --motion-every 15 --count 20
+..\.venv\Scripts\python tools\fake_sensors.py --dry-run      # bez brokera, tylko wypisuje wiadomości
+..\.venv\Scripts\python tools\fake_sensors.py --help
+```
+
 ## Wdrożenie na Raspberry Pi
 
 ```bash
