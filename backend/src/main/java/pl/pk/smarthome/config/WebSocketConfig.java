@@ -12,12 +12,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	@Override
 	public void registerStompEndpoints(StompEndpointRegistry registry) {
-		// TODO: endpoint /ws (+ allowed origins frontendu)
+		// Bez zarejestrowanego endpointu Spring nie wystartuje (IllegalStateException: No handlers).
+		// TODO: allowed origins frontendu
+		registry.addEndpoint("/ws");
 	}
 
 	@Override
 	public void configureMessageBroker(MessageBrokerRegistry registry) {
-		// TODO: simple broker na /topic, prefiks aplikacji /app
+		registry.enableSimpleBroker("/topic");
+		registry.setApplicationDestinationPrefixes("/app");
 	}
 
 	// TODO: uwierzytelnianie JWT przy CONNECT (ChannelInterceptor)
