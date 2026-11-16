@@ -1,0 +1,21 @@
+# PostgreSQL dla backendu: docker compose up -d (w katalogu backend/).
+# Użytkownik, hasło i baza są brane z backend/.env, kontener zakłada je przy pierwszym starcie.
+# Port 5434, bo 5432 zajmuje lokalny PostgreSQL, a 5433 baza AirTrack.
+name: smarthome
+
+services:
+  postgres:
+    image: 'postgres:18'
+    container_name: smarthome-postgres
+    restart: unless-stopped
+    environment:
+      - 'POSTGRES_DB=smarthome'
+      - 'POSTGRES_USER=${DB_USERNAME:-smarthome}'
+      - 'POSTGRES_PASSWORD=${DB_PASSWORD:?Ustaw DB_PASSWORD w backend/.env}'
+    ports:
+      - '5434:5432'
+    volumes:
+      - smarthome-postgres-data:/var/lib/postgresql
+
+volumes:
+  smarthome-postgres-data:
